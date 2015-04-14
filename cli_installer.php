@@ -6,15 +6,16 @@
 
 function usage()
 {
-    print("usage: -i /path/to/instance -z /path/to/zipfile\n");
+    print("usage: -i /path/to/instance -z /path/to/zipfile [-p disable_package_scanner_flag]\n");
     exit(1);
 }
 
-$opts = getopt('i:z:');
+$opts = getopt('i:z:p:');
 
 if (!$opts) usage();
-$sugar_directory = array_key_exists('i', $opts) ? $opts['i'] : false;
-$zip_file = array_key_exists('z', $opts) ? $opts['z'] : false;
+$sugar_directory = array_key_exists('i', $opts) ? realpath($opts['i']) : false;
+$zip_file = array_key_exists('z', $opts) ? realpath($opts['z']) : false;
+$disable_package_scanner = array_key_exists('p', $opts) ? true : false;
 
 if (!$sugar_directory || !$zip_file) {
     usage();
@@ -44,26 +45,34 @@ if (!is_dir($package_dir)) {
     exit(1);
 }
 
-// Initialize SugarCRM
-if(!defined('sugarEntry'))  define('sugarEntry', true);
-chdir($sugar_directory);
-require('config.php');
-require_once('include/entryPoint.php');
-require_once('include/utils/zip_utils.php');
-require_once('include/dir_inc.php');
-require_once('ModuleInstall/ModuleInstaller.php');
-$current_user = new User();
-$current_user->getSystemUser();
-
-// unzip the zip
-unzip($zip_file, $package_dir);
-
-// some additional checks
 if (!chdir($sugar_directory)) {
     error_log("Failed to chdir to $sugar_directory");
     exit(1);
 }
 
+if (!is_readable('config.php') || !is_readable('sugar_version.php'))
+{
+    error_log("$sugar_directory is not a Sugar system");
+    exit(1);
+}
+
+// Initialize SugarCRM
+if(!defined('sugarEntry'))  define('sugarEntry', true);
+require('config.php');
+require_once('include/entryPoint.php');
+require_once('include/dir_inc.php');
+require_once('include/utils/zip_utils.php');
+require_once('ModuleInstall/ModuleInstaller.php');
+$current_user = new User();
+$current_user->getSystemUser();
+
+// To prevent notice error
+$_REQUEST['install_file'] = '';
+
+// Unzip the zip
+unzip($zip_file, $package_dir);
+
+// Some additional checks
 if (!is_readable($package_dir . '/manifest.php')) {
     error_log("Package dir does not contain a readable manifest.php\n");
     exit(1);
@@ -80,12 +89,15 @@ if (!array_key_exists('name', $manifest) || $manifest['name'] == '') {
     exit(1);
 }
 
-//initialize the module installer
+// Initialize the module installer
 $modInstaller = new ModuleInstaller();
 $modInstaller->silent = true;  //shuts up the javscript progress bar
 
-// disable packageScanner
-$sugar_config['moduleInstaller']['packageScan'] = false;
+// Disable packageScanner
+if ($disable_package_scanner)
+{
+    $sugar_config['moduleInstaller']['packageScan'] = false;
+}
 
 // Squelch some warnings
 $GLOBALS['app_list_strings']['moduleList'] = Array();
